@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>深蹲计数器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            text-align: center;
+            padding: 20px 0;
+        }
+        header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        header p {
+            color: #888;
+            font-size: 1rem;
+        }
+        .main-content {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        .video-section {
+            flex: 2;
+        }
+        .video-container {
+            background: #0f0f23;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .video-container img {
+            width: 100%;
+            display: block;
+        }
+        .stats-section {
+            flex: 1;
+        }
+        .stat-card {
+            background: linear-gradient(145deg, #1e1e3f, #252550);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        .count-card {
+            text-align: center;
+        }
+        .count-card .count {
+            font-size: 5rem;
+            font-weight: bold;
+            color: #00ff88;
+            text-shadow: 0 0 30px rgba(0,255,136,0.5);
+        }
+        .count-card .label {
+            font-size: 1.2rem;
+            color: #888;
+            margin-top: 10px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #888;
+        }
+        .info-value {
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        .reset-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(90deg, #ff4757, #ff6b81);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .reset-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255,71,87,0.4);
+        }
+        .warning-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .warning-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .warning-box {
+            background: linear-gradient(145deg, #2d2d5a, #1a1a3e);
+            border: 2px solid #ffa502;
+            border-radius: 15px;
+            padding: 30px 40px;
+            text-align: center;
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 30px rgba(255, 165, 2, 0.3);
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(255, 165, 2, 0.3); }
+            50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(255, 165, 2, 0.5); }
+        }
+        .warning-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+        .warning-text {
+            font-size: 1.3rem;
+            color: #ffa502;
+            font-weight: bold;
+        }
+        .video-container {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>深蹲计数器</h1>
+            <p>基于AI姿态识别的实时深蹲计数系统</p>
+        </header>
+
+        <div class="main-content">
+            <div class="video-section">
+                <div class="video-container">
+                    <img src="{{ url_for('video_feed') }}" alt="视频流">
+                    <div class="warning-overlay" id="warning-overlay">
+                        <div class="warning-box">
+                            <div class="warning-icon">⚠️</div>
+                            <div class="warning-text" id="warning-text">请确保全身在画面内</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <div class="stat-card count-card">
+                    <div class="count" id="count">0</div>
+                    <div class="label">深蹲次数</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="info-row">
+                        <span class="info-label">当前姿态</span>
+                        <span class="info-value" id="pose">未检测</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">姿态置信度</span>
+                        <span class="info-value" id="pose-conf">0%</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">面向角度</span>
+                        <span class="info-value" id="angle">未检测</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">角度置信度</span>
+                        <span class="info-value" id="angle-conf">0%</span>
+                    </div>
+                </div>
+
+                <button class="reset-btn" onclick="resetCount()">重置计数</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('count').textContent = data.count;
+                    document.getElementById('pose').textContent = data.pose || '未检测';
+                    document.getElementById('pose-conf').textContent =
+                        (data.pose_confidence * 100).toFixed(1) + '%';
+                    document.getElementById('angle').textContent = data.angle || '未检测';
+                    document.getElementById('angle-conf').textContent =
+                        (data.angle_confidence * 100).toFixed(1) + '%';
+
+                    // 处理警告信息
+                    const warningOverlay = document.getElementById('warning-overlay');
+                    const warningText = document.getElementById('warning-text');
+                    if (data.warning) {
+                        warningText.textContent = data.warning;
+                        warningOverlay.classList.add('show');
+                    } else {
+                        warningOverlay.classList.remove('show');
+                    }
+                });
+        }
+
+        function resetCount() {
+            fetch('/reset', { method: 'POST' })
+                .then(() => updateStatus());
+        }
+
+        setInterval(updateStatus, 100);
+    </script>
+</body>
+</html>
