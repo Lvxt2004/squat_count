@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频检测 - 深蹲计数器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            text-align: center;
+            padding: 20px 0;
+        }
+        header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        header p {
+            color: #888;
+            font-size: 1rem;
+        }
+        .nav-links {
+            margin-top: 10px;
+        }
+        .nav-links a {
+            color: #00d9ff;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .main-content {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        .video-section {
+            flex: 2;
+        }
+        .video-container {
+            background: #0f0f23;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-container img {
+            width: 100%;
+            display: block;
+        }
+        .video-container video {
+            width: 100%;
+            display: block;
+        }
+        .upload-area {
+            text-align: center;
+            padding: 60px 20px;
+            border: 2px dashed #444;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #00d9ff;
+            background: rgba(0, 217, 255, 0.05);
+        }
+        .upload-area.dragover {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+        }
+        .upload-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        .upload-text {
+            font-size: 1.2rem;
+            color: #888;
+            margin-bottom: 10px;
+        }
+        .upload-hint {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        #fileInput {
+            display: none;
+        }
+        .stats-section {
+            flex: 1;
+        }
+        .stat-card {
+            background: linear-gradient(145deg, #1e1e3f, #252550);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        .count-card {
+            text-align: center;
+        }
+        .count-card .count {
+            font-size: 5rem;
+            font-weight: bold;
+            color: #00ff88;
+            text-shadow: 0 0 30px rgba(0,255,136,0.5);
+        }
+        .count-card .label {
+            font-size: 1.2rem;
+            color: #888;
+            margin-top: 10px;
+        }
+        .score-card {
+            text-align: center;
+            background: linear-gradient(145deg, #1a3a2e, #1e4a3a);
+        }
+        .score-card .score {
+            font-size: 3.5rem;
+            font-weight: bold;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255,215,0,0.5);
+        }
+        .score-card .score-label {
+            font-size: 1rem;
+            color: #888;
+            margin-top: 5px;
+        }
+        .score-card .avg-score {
+            font-size: 1.2rem;
+            color: #00d9ff;
+            margin-top: 10px;
+        }
+        .score-grade {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .grade-excellent {
+            background: linear-gradient(90deg, #00ff88, #00d9ff);
+            color: #1a1a2e;
+        }
+        .grade-good {
+            background: linear-gradient(90deg, #ffd700, #ffaa00);
+            color: #1a1a2e;
+        }
+        .grade-fair {
+            background: linear-gradient(90deg, #ff9500, #ff6b00);
+            color: #fff;
+        }
+        .grade-poor {
+            background: linear-gradient(90deg, #ff4757, #ff6b81);
+            color: #fff;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #888;
+        }
+        .info-value {
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn-primary {
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            color: #1a1a2e;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 5px 20px rgba(0,217,255,0.4);
+        }
+        .btn-danger {
+            background: linear-gradient(90deg, #ff4757, #ff6b81);
+        }
+        .btn-danger:hover {
+            box-shadow: 0 5px 20px rgba(255,71,87,0.4);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            margin-bottom: 15px;
+        }
+        .status-ready {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+        .status-processing {
+            background: #ffd700;
+            color: #1a1a2e;
+        }
+        .status-idle {
+            background: #666;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>视频检测模式</h1>
+            <p>上传深蹲视频进行离线分析</p>
+            <div class="nav-links">
+                <a href="/">返回实时检测</a>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="video-section">
+                <div class="video-container" id="video-container">
+                    <div class="upload-area" id="upload-area" onclick="document.getElementById('fileInput').click()">
+                        <div class="upload-icon">📁</div>
+                        <div class="upload-text">点击或拖拽上传视频</div>
+                        <div class="upload-hint">支持 MP4, AVI, MOV, MKV, WebM 格式，最大 100MB</div>
+                    </div>
+                    <input type="file" id="fileInput" accept="video/*" onchange="handleFileSelect(event)">
+                    <img id="video-stream" style="display: none;" alt="视频流">
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <div class="stat-card" style="text-align: center;">
+                    <span class="status-badge status-idle" id="status-badge">等待上传</span>
+                    <div id="filename" style="color: #888; font-size: 0.9rem;"></div>
+                </div>
+
+                <div class="stat-card count-card">
+                    <div class="count" id="count">0</div>
+                    <div class="label">深蹲次数</div>
+                </div>
+
+                <div class="stat-card score-card">
+                    <div class="score" id="score">--</div>
+                    <div class="score-label">动作评分</div>
+                    <div class="score-grade" id="score-grade">--</div>
+                    <div class="avg-score">平均分: <span id="avg-score">--</span></div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="info-row">
+                        <span class="info-label">当前姿态</span>
+                        <span class="info-value" id="pose">未检测</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">面向角度</span>
+                        <span class="info-value" id="angle">未检测</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="play-btn" onclick="playVideo()" disabled>开始检测</button>
+                <button class="btn btn-danger" onclick="resetVideo()">重置</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isPlaying = false;
+
+        function getScoreGrade(score) {
+            if (score >= 85) return { text: '优秀', class: 'grade-excellent' };
+            if (score >= 70) return { text: '良好', class: 'grade-good' };
+            if (score >= 55) return { text: '及格', class: 'grade-fair' };
+            if (score > 0) return { text: '需改进', class: 'grade-poor' };
+            return { text: '--', class: '' };
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        }
+
+        // 拖拽上传
+        const uploadArea = document.getElementById('upload-area');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        });
+
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('video', file);
+
+            document.getElementById('status-badge').textContent = '上传中...';
+            document.getElementById('status-badge').className = 'status-badge status-processing';
+
+            fetch('/upload_video', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('filename').textContent = data.filename;
+                    document.getElementById('status-badge').textContent = '准备就绪';
+                    document.getElementById('status-badge').className = 'status-badge status-ready';
+                    document.getElementById('play-btn').disabled = false;
+                } else {
+                    alert('上传失败: ' + data.error);
+                    document.getElementById('status-badge').textContent = '上传失败';
+                    document.getElementById('status-badge').className = 'status-badge status-idle';
+                }
+            })
+            .catch(error => {
+                alert('上传出错: ' + error);
+                document.getElementById('status-badge').textContent = '上传失败';
+                document.getElementById('status-badge').className = 'status-badge status-idle';
+            });
+        }
+
+        function playVideo() {
+            if (isPlaying) return;
+
+            isPlaying = true;
+            document.getElementById('upload-area').style.display = 'none';
+            document.getElementById('video-stream').style.display = 'block';
+            document.getElementById('video-stream').src = '/video_play_feed?' + new Date().getTime();
+            document.getElementById('status-badge').textContent = '检测中...';
+            document.getElementById('status-badge').className = 'status-badge status-processing';
+            document.getElementById('play-btn').disabled = true;
+
+            // 开始轮询状态
+            startStatusPolling();
+        }
+
+        function startStatusPolling() {
+            const pollInterval = setInterval(() => {
+                fetch('/video_status')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('count').textContent = data.count;
+                        document.getElementById('pose').textContent = data.pose || '未检测';
+                        document.getElementById('angle').textContent = data.angle || '未检测';
+
+                        const score = data.score || 0;
+                        if (score > 0) {
+                            document.getElementById('score').textContent = score.toFixed(1);
+                            const grade = getScoreGrade(score);
+                            const gradeEl = document.getElementById('score-grade');
+                            gradeEl.textContent = grade.text;
+                            gradeEl.className = 'score-grade ' + grade.class;
+                        }
+
+                        const avgScore = data.avg_score || 0;
+                        document.getElementById('avg-score').textContent =
+                            avgScore > 0 ? avgScore.toFixed(1) : '--';
+
+                        if (!data.processing && isPlaying) {
+                            // 视频播放完成
+                            document.getElementById('status-badge').textContent = '检测完成';
+                            document.getElementById('status-badge').className = 'status-badge status-ready';
+                            isPlaying = false;
+                            clearInterval(pollInterval);
+                        }
+                    });
+            }, 200);
+        }
+
+        function resetVideo() {
+            fetch('/video_reset', { method: 'POST' })
+                .then(() => {
+                    document.getElementById('count').textContent = '0';
+                    document.getElementById('score').textContent = '--';
+                    document.getElementById('avg-score').textContent = '--';
+                    document.getElementById('score-grade').textContent = '--';
+                    document.getElementById('score-grade').className = 'score-grade';
+                    document.getElementById('pose').textContent = '未检测';
+                    document.getElementById('angle').textContent = '未检测';
+                    document.getElementById('upload-area').style.display = 'block';
+                    document.getElementById('video-stream').style.display = 'none';
+                    document.getElementById('video-stream').src = '';
+                    document.getElementById('status-badge').textContent = '等待上传';
+                    document.getElementById('status-badge').className = 'status-badge status-idle';
+                    document.getElementById('play-btn').disabled = true;
+                    document.getElementById('filename').textContent = '';
+                    isPlaying = false;
+                });
+        }
+    </script>
+</body>
+</html>
