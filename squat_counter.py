@@ -2,13 +2,17 @@
 深蹲计数器核心逻辑
 包含防抖机制，防止误计数
 使用提取的几何特征进行姿态和角度分类
+包含 DTW 动态时间规整打分功能
 """
 import os
 import numpy as np
+import pandas as pd
 import joblib
 from collections import deque
+from scipy.spatial.distance import euclidean
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data_csv', 'csv_standard')
 
 # MediaPipe关键点索引
 NOSE = 0
@@ -101,9 +105,196 @@ class SquatCounter:
         self.pose_labels = ['站立', '蹲下']
         self.angle_labels = ['正面', '侧面', '斜面']
 
+        # DTW 打分相关
+        self.standard_sequences = self._load_standard_sequences()
+        self.frame_buffer = deque(maxlen=150)  # 缓存最近 150 帧（约 5 秒 @30fps）
+        self.squat_start_idx = 0  # 蹲下开始的帧索引
+        self.frame_count = 0  # 总帧计数
+
+        # 打分结果
+        self.current_score = 0.0
+        self.score_history = []
+        self.avg_score = 0.0
+
+        # 低通滤波器参数
+        self.filter_window = 5  # 移动平均窗口大小
+        self.hip_y_history = deque(maxlen=self.filter_window)
+
+    def _load_standard_sequences(self):
+        """加载标准动作序列数据"""
+        sequences = {}
+        file_map = {
+            '正面': 'zheng_squat_1.csv',
+            '侧面': 'ce_squat_1.csv',
+            '斜面': 'xie_squat_1.csv'
+        }
+
+        for angle_name, filename in file_map.items():
+            file_path = os.path.join(DATA_DIR, filename)
+            if os.path.exists(file_path):
+                try:
+                    df = pd.read_csv(file_path)
+                    # 提取关键特征序列（膝关节角度、髋关节角度等）
+                    sequences[angle_name] = self._extract_sequence_features(df)
+                except Exception as e:
+                    print(f"加载标准序列文件失败 {file_path}: {e}")
+
+        return sequences
+
+    def _extract_sequence_features(self, df):
+        """从 DataFrame 提取用于 DTW 比较的特征序列"""
+        features_list = []
+
+        for _, row in df.iterrows():
+            # 提取关键点坐标（跳过 Frame 列）
+            coords = row.values[1:].astype(float)
+
+            # 重构为 33x3 的数组
+            landmarks_array = coords.reshape(33, 3)
+
+            # 提取关键特征
+            features = self._compute_frame_features(landmarks_array)
+            features_list.append(features)
+
+        return np.array(features_list)
+
+    def _compute_frame_features(self, landmarks_array):
+        """
+        计算单帧的特征向量（用于 DTW）
+        使用纯角度和比例特征，不受坐标系影响
+        """
+        # 获取关键点
+        left_shoulder = landmarks_array[LEFT_SHOULDER]
+        right_shoulder = landmarks_array[RIGHT_SHOULDER]
+        left_hip = landmarks_array[LEFT_HIP]
+        right_hip = landmarks_array[RIGHT_HIP]
+        left_knee = landmarks_array[LEFT_KNEE]
+        right_knee = landmarks_array[RIGHT_KNEE]
+        left_ankle = landmarks_array[LEFT_ANKLE]
+        right_ankle = landmarks_array[RIGHT_ANKLE]
+
+        # 计算中点
+        hip_mid = (left_hip + right_hip) / 2
+        shoulder_mid = (left_shoulder + right_shoulder) / 2
+        ankle_mid = (left_ankle + right_ankle) / 2
+
+        # 特征1: 左膝关节角度（归一化到0-1，180度=1）
+        left_knee_angle = self._calc_angle(left_hip, left_knee, left_ankle) / 180.0
+
+        # 特征2: 右膝关节角度
+        right_knee_angle = self._calc_angle(right_hip, right_knee, right_ankle) / 180.0
+
+        # 特征3: 左髋关节角度
+        left_hip_angle = self._calc_angle(left_shoulder, left_hip, left_knee) / 180.0
+
+        # 特征4: 右髋关节角度
+        right_hip_angle = self._calc_angle(right_shoulder, right_hip, right_knee) / 180.0
+
+        # 特征5: 髋部相对高度（髋部在肩部和脚踝之间的位置比例）
+        # 站立时约0.4-0.5，蹲下时约0.6-0.8
+        total_height = ankle_mid[1] - shoulder_mid[1]
+        if abs(total_height) > 1e-6:
+            hip_relative_height = (hip_mid[1] - shoulder_mid[1]) / total_height
+        else:
+            hip_relative_height = 0.5
+
+        # 特征6: 躯干与大腿夹角（归一化）
+        torso_thigh_angle = self._calc_angle(shoulder_mid, hip_mid, (left_knee + right_knee) / 2) / 180.0
+
+        return np.array([
+            left_knee_angle,
+            right_knee_angle,
+            left_hip_angle,
+            right_hip_angle,
+            hip_relative_height,
+            torso_thigh_angle,
+        ])
+
+    def _calc_angle(self, p1, p2, p3):
+        """计算三点角度"""
+        v1 = p1 - p2
+        v2 = p3 - p2
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+        cos_angle = np.clip(cos_angle, -1, 1)
+        return np.arccos(cos_angle) * 180 / np.pi
+
+    def _dtw_distance(self, seq1, seq2):
+        """计算两个序列的 DTW 距离"""
+        n, m = len(seq1), len(seq2)
+        dtw_matrix = np.full((n + 1, m + 1), np.inf)
+        dtw_matrix[0, 0] = 0
+
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                cost = euclidean(seq1[i - 1], seq2[j - 1])
+                dtw_matrix[i, j] = cost + min(
+                    dtw_matrix[i - 1, j],      # 插入
+                    dtw_matrix[i, j - 1],      # 删除
+                    dtw_matrix[i - 1, j - 1]   # 匹配
+                )
+
+        return dtw_matrix[n, m]
+
+    def _compute_dtw_score(self, user_sequence, angle_type):
+        """计算 DTW 打分"""
+        if angle_type not in self.standard_sequences:
+            return 70.0  # 默认分数
+
+        standard_seq = self.standard_sequences[angle_type]
+
+        # 如果用户序列太短，返回较低分数
+        if len(user_sequence) < 10:
+            return 50.0
+
+        # 计算 DTW 距离
+        dtw_dist = self._dtw_distance(user_sequence, standard_seq)
+
+        # 使用用户序列长度归一化
+        normalized_dist = dtw_dist / len(user_sequence)
+
+        # 调试输出：查看用户序列的特征范围
+        print(f"[DTW] 用户序列: {len(user_sequence)}帧, 标准序列: {len(standard_seq)}帧")
+
+        # 打印用户序列的关键特征统计
+        user_arr = np.array(user_sequence)
+        print(f"[DTW] 用户特征 - 左膝角度: {user_arr[:,0].min()*180:.1f}°~{user_arr[:,0].max()*180:.1f}°")
+        print(f"[DTW] 用户特征 - 髋部高度: {user_arr[:,4].min():.2f}~{user_arr[:,4].max():.2f}")
+
+        print(f"[DTW] DTW距离: {dtw_dist:.2f}, 归一化距离: {normalized_dist:.4f}")
+
+        # 映射到分数
+        score = 110 - 10 * normalized_dist
+        score = max(0, min(100, score))
+
+        print(f"[DTW] 最终得分: {score:.1f}")
+        print("-" * 50)
+
+        return round(score, 1)
+
+    def _get_filtered_hip_y(self, landmarks):
+        """获取低通滤波后的髋部 y 坐标"""
+        left_hip = landmarks[LEFT_HIP]
+        right_hip = landmarks[RIGHT_HIP]
+        hip_y = (left_hip.y + right_hip.y) / 2
+
+        self.hip_y_history.append(hip_y)
+
+        # 移动平均滤波
+        if len(self.hip_y_history) >= self.filter_window:
+            return sum(self.hip_y_history) / len(self.hip_y_history)
+        return hip_y
+
+    def _landmarks_to_array(self, landmarks):
+        """将 MediaPipe landmarks 转换为数组格式"""
+        arr = np.zeros((33, 3))
+        for i in range(33):
+            lm = landmarks[i]
+            arr[i] = [lm.x * 1920, lm.y * 1080, lm.z * 1920]
+        return arr
+
     def check_full_body_visible(self, landmarks):
         """
-        检查全身是否可见
+        检查全身是否可见（支持侧面站立）
 
         Args:
             landmarks: MediaPipe pose landmarks
@@ -113,15 +304,32 @@ class SquatCounter:
                 - is_visible: 是否全身可见
                 - message: 提示信息（全身可见时为None）
         """
-        for idx in self.REQUIRED_LANDMARKS:
-            lm = landmarks[idx]
+        # 核心点：必须可见（鼻子用于判断头部）
+        nose = landmarks[NOSE]
+        if nose.visibility < 0.3 or not (0 <= nose.x <= 1 and 0 <= nose.y <= 1):
+            return False, "请确保全身在画面内"
 
-            # 检查可见度
-            if lm.visibility < self.visibility_threshold:
-                return False, "请确保全身在画面内"
+        # 成对的关键点：只要求至少一侧可见（支持侧面站立）
+        paired_landmarks = [
+            (LEFT_SHOULDER, RIGHT_SHOULDER, "肩部"),
+            (LEFT_HIP, RIGHT_HIP, "髋部"),
+            (LEFT_KNEE, RIGHT_KNEE, "膝盖"),
+            (LEFT_ANKLE, RIGHT_ANKLE, "脚踝"),
+        ]
 
-            # 检查是否在画面内（归一化坐标应在0-1之间）
-            if not (0 <= lm.x <= 1 and 0 <= lm.y <= 1):
+        low_threshold = 0.3  # 侧面时降低阈值
+
+        for left_idx, right_idx, name in paired_landmarks:
+            left_lm = landmarks[left_idx]
+            right_lm = landmarks[right_idx]
+
+            # 检查是否至少有一侧可见
+            left_visible = (left_lm.visibility >= low_threshold and
+                           0 <= left_lm.x <= 1 and 0 <= left_lm.y <= 1)
+            right_visible = (right_lm.visibility >= low_threshold and
+                            0 <= right_lm.x <= 1 and 0 <= right_lm.y <= 1)
+
+            if not (left_visible or right_visible):
                 return False, "请确保全身在画面内"
 
         return True, None
@@ -133,6 +341,13 @@ class SquatCounter:
         self.confirmed_state = None
         self.state_history.clear()
         self.has_squatted = False
+        self.frame_buffer.clear()
+        self.squat_start_idx = 0
+        self.frame_count = 0
+        self.current_score = 0.0
+        self.score_history = []
+        self.avg_score = 0.0
+        self.hip_y_history.clear()
 
     def extract_angle_features(self, landmarks):
         """
@@ -310,15 +525,52 @@ class SquatCounter:
 
         # 当前检测到的状态
         current_detected = 'squat' if pose_pred == 1 else 'stand'
+        angle_type = self.angle_labels[angle_pred]
 
         state_changed = False
 
-        # 简化逻辑：检测到蹲下就标记，检测到站立且曾蹲下就计数
-        if current_detected == 'squat':
+        # 将当前帧特征加入缓存
+        landmarks_array = self._landmarks_to_array(landmarks)
+        frame_features = self._compute_frame_features(landmarks_array)
+        self.frame_buffer.append({
+            'features': frame_features,
+            'frame_idx': self.frame_count
+        })
+        self.frame_count += 1
+
+        # 状态防抖：将当前状态加入历史队列
+        self.state_history.append(current_detected)
+
+        # 只有连续 debounce_frames 帧都是同一状态才确认状态变化
+        if len(self.state_history) >= self.debounce_frames:
+            # 检查最近的帧是否都是同一状态
+            recent_states = list(self.state_history)[-self.debounce_frames:]
+            if all(s == 'squat' for s in recent_states):
+                confirmed_detected = 'squat'
+            elif all(s == 'stand' for s in recent_states):
+                confirmed_detected = 'stand'
+            else:
+                confirmed_detected = self.confirmed_state  # 保持当前状态
+        else:
+            confirmed_detected = current_detected
+
+        # 使用防抖后的状态进行计数
+        if confirmed_detected == 'squat':
+            if not self.has_squatted:
+                # 记录蹲下开始的帧索引
+                self.squat_start_idx = self.frame_count - 1
             self.has_squatted = True
             self.confirmed_state = 'squat'
-        elif current_detected == 'stand' and self.has_squatted:
+        elif confirmed_detected == 'stand' and self.has_squatted:
             self.count += 1
+
+            # 提取本次深蹲的动作序列并计算 DTW 分数
+            user_sequence = self._extract_squat_sequence()
+            if len(user_sequence) > 0:
+                self.current_score = self._compute_dtw_score(user_sequence, angle_type)
+                self.score_history.append(self.current_score)
+                self.avg_score = round(sum(self.score_history) / len(self.score_history), 1)
+
             self.has_squatted = False
             self.confirmed_state = 'stand'
             state_changed = True
@@ -331,5 +583,16 @@ class SquatCounter:
             'angle_confidence': float(angle_conf),
             'confirmed_state': self.confirmed_state,
             'state_changed': state_changed,
-            'warning': None
+            'warning': None,
+            'score': self.current_score,
+            'avg_score': self.avg_score,
+            'score_history': self.score_history[-10:]
         }
+
+    def _extract_squat_sequence(self):
+        """从缓存中提取本次深蹲的动作序列"""
+        sequence = []
+        for frame_data in self.frame_buffer:
+            if frame_data['frame_idx'] >= self.squat_start_idx:
+                sequence.append(frame_data['features'])
+        return np.array(sequence) if sequence else np.array([])

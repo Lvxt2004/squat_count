@@ -49,6 +49,7 @@
             border-radius: 15px;
             overflow: hidden;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
         }
         .video-container img {
             width: 100%;
@@ -77,6 +78,55 @@
             font-size: 1.2rem;
             color: #888;
             margin-top: 10px;
+        }
+        .score-card {
+            text-align: center;
+            background: linear-gradient(145deg, #1a3a2e, #1e4a3a);
+        }
+        .score-card .score {
+            font-size: 3.5rem;
+            font-weight: bold;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255,215,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .score-card .score.updated {
+            transform: scale(1.1);
+            text-shadow: 0 0 40px rgba(255,215,0,0.8);
+        }
+        .score-card .score-label {
+            font-size: 1rem;
+            color: #888;
+            margin-top: 5px;
+        }
+        .score-card .avg-score {
+            font-size: 1.2rem;
+            color: #00d9ff;
+            margin-top: 10px;
+        }
+        .score-grade {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .grade-excellent {
+            background: linear-gradient(90deg, #00ff88, #00d9ff);
+            color: #1a1a2e;
+        }
+        .grade-good {
+            background: linear-gradient(90deg, #ffd700, #ffaa00);
+            color: #1a1a2e;
+        }
+        .grade-fair {
+            background: linear-gradient(90deg, #ff9500, #ff6b00);
+            color: #fff;
+        }
+        .grade-poor {
+            background: linear-gradient(90deg, #ff4757, #ff6b81);
+            color: #fff;
         }
         .info-row {
             display: flex;
@@ -149,16 +199,16 @@
             color: #ffa502;
             font-weight: bold;
         }
-        .video-container {
-            position: relative;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>深蹲计数器</h1>
-            <p>基于AI姿态识别的实时深蹲计数系统</p>
+            <p>基于AI姿态识别的实时深蹲计数与评分系统</p>
+            <div style="margin-top: 10px;">
+                <a href="/video" style="color: #00d9ff; text-decoration: none;">切换到视频检测模式</a>
+            </div>
         </header>
 
         <div class="main-content">
@@ -178,6 +228,13 @@
                 <div class="stat-card count-card">
                     <div class="count" id="count">0</div>
                     <div class="label">深蹲次数</div>
+                </div>
+
+                <div class="stat-card score-card">
+                    <div class="score" id="score">--</div>
+                    <div class="score-label">动作评分 (DTW)</div>
+                    <div class="score-grade" id="score-grade">--</div>
+                    <div class="avg-score">平均分: <span id="avg-score">--</span></div>
                 </div>
 
                 <div class="stat-card">
@@ -205,6 +262,16 @@
     </div>
 
     <script>
+        let lastScore = 0;
+
+        function getScoreGrade(score) {
+            if (score >= 85) return { text: '优秀', class: 'grade-excellent' };
+            if (score >= 70) return { text: '良好', class: 'grade-good' };
+            if (score >= 55) return { text: '及格', class: 'grade-fair' };
+            if (score > 0) return { text: '需改进', class: 'grade-poor' };
+            return { text: '--', class: '' };
+        }
+
         function updateStatus() {
             fetch('/status')
                 .then(response => response.json())
@@ -216,6 +283,34 @@
                     document.getElementById('angle').textContent = data.angle || '未检测';
                     document.getElementById('angle-conf').textContent =
                         (data.angle_confidence * 100).toFixed(1) + '%';
+
+                    // 更新分数显示
+                    const score = data.score || 0;
+                    const scoreEl = document.getElementById('score');
+
+                    if (score > 0) {
+                        scoreEl.textContent = score.toFixed(1);
+
+                        // 分数更新时添加动画效果
+                        if (score !== lastScore && lastScore !== 0) {
+                            scoreEl.classList.add('updated');
+                            setTimeout(() => scoreEl.classList.remove('updated'), 300);
+                        }
+                        lastScore = score;
+
+                        // 更新评级
+                        const grade = getScoreGrade(score);
+                        const gradeEl = document.getElementById('score-grade');
+                        gradeEl.textContent = grade.text;
+                        gradeEl.className = 'score-grade ' + grade.class;
+                    } else {
+                        scoreEl.textContent = '--';
+                    }
+
+                    // 更新平均分
+                    const avgScore = data.avg_score || 0;
+                    document.getElementById('avg-score').textContent =
+                        avgScore > 0 ? avgScore.toFixed(1) : '--';
 
                     // 处理警告信息
                     const warningOverlay = document.getElementById('warning-overlay');
@@ -231,7 +326,10 @@
 
         function resetCount() {
             fetch('/reset', { method: 'POST' })
-                .then(() => updateStatus());
+                .then(() => {
+                    lastScore = 0;
+                    updateStatus();
+                });
         }
 
         setInterval(updateStatus, 100);
