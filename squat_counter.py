@@ -51,6 +51,17 @@ def calculate_angle_with_horizontal(p1, p2):
     return abs(angle)
 
 
+def calculate_angle_xz_plane(p1, p2):
+    """
+    计算两点连线在 xz 平面（俯视图）与 x 轴的夹角（度数）
+    用于判断身体朝向：正面接近0°，侧面接近90°，斜面在中间
+    """
+    dx = p2[0] - p1[0]
+    dz = p2[2] - p1[2]
+    angle = np.arctan2(abs(dz), abs(dx)) * 180 / np.pi
+    return angle
+
+
 def calculate_joint_angle(p1, p2, p3):
     """计算三点形成的关节角度（p2为顶点）"""
     v1 = p1 - p2
@@ -362,11 +373,11 @@ class SquatCounter:
 
         features = []
 
-        # 1. 肩部连线与水平轴的夹角
+        # 1. 肩部连线与水平轴的夹角（2D，xy平面）
         shoulder_angle = calculate_angle_with_horizontal(left_shoulder[:2], right_shoulder[:2])
         features.append(shoulder_angle)
 
-        # 2. 髋部连线与水平轴的夹角
+        # 2. 髋部连线与水平轴的夹角（2D，xy平面）
         hip_angle = calculate_angle_with_horizontal(left_hip[:2], right_hip[:2])
         features.append(hip_angle)
 
@@ -390,9 +401,9 @@ class SquatCounter:
         width_ratio = shoulder_width / (hip_width + 1e-6)
         features.append(width_ratio)
 
-        # 8. 肩部中点的z坐标（深度）
-        shoulder_mid_z = (left_shoulder[2] + right_shoulder[2]) / 2
-        features.append(shoulder_mid_z)
+        # 8. 肩部连线在xz平面（俯视图）与x轴的夹角 - 正面接近0°，侧面接近90°，斜面在中间
+        shoulder_xz_angle = calculate_angle_xz_plane(left_shoulder, right_shoulder)
+        features.append(shoulder_xz_angle)
 
         return np.array(features).reshape(1, -1)
 
