@@ -363,7 +363,8 @@ class SquatCounter:
     def extract_angle_features(self, landmarks):
         """
         提取用于角度分类（正面/侧面/斜面）的特征
-        这些特征与用户面向摄像头的角度强相关
+        只使用髋部和肩部连线在XZ平面与X轴的夹角
+        正面接近0°，侧面接近90°，斜面在中间
         """
         # 获取关键点
         left_shoulder = get_point_from_landmarks(landmarks, LEFT_SHOULDER)
@@ -373,35 +374,11 @@ class SquatCounter:
 
         features = []
 
-        # 1. 肩部连线与水平轴的夹角（2D，xy平面）
-        shoulder_angle = calculate_angle_with_horizontal(left_shoulder[:2], right_shoulder[:2])
-        features.append(shoulder_angle)
+        # 1. 髋部连线在xz平面（俯视图）与x轴的夹角
+        hip_xz_angle = calculate_angle_xz_plane(left_hip, right_hip)
+        features.append(hip_xz_angle)
 
-        # 2. 髋部连线与水平轴的夹角（2D，xy平面）
-        hip_angle = calculate_angle_with_horizontal(left_hip[:2], right_hip[:2])
-        features.append(hip_angle)
-
-        # 3. 左右肩的x坐标差值 - 正面时差值大，侧面时差值小
-        shoulder_width = abs(left_shoulder[0] - right_shoulder[0])
-        features.append(shoulder_width)
-
-        # 4. 左右髋的x坐标差值
-        hip_width = abs(left_hip[0] - right_hip[0])
-        features.append(hip_width)
-
-        # 5. 左右肩的z坐标差值（深度差）- 斜面时差值大
-        shoulder_z_diff = abs(left_shoulder[2] - right_shoulder[2])
-        features.append(shoulder_z_diff)
-
-        # 6. 左右髋的z坐标差值
-        hip_z_diff = abs(left_hip[2] - right_hip[2])
-        features.append(hip_z_diff)
-
-        # 7. 肩宽与髋宽的比值
-        width_ratio = shoulder_width / (hip_width + 1e-6)
-        features.append(width_ratio)
-
-        # 8. 肩部连线在xz平面（俯视图）与x轴的夹角 - 正面接近0°，侧面接近90°，斜面在中间
+        # 2. 肩部连线在xz平面（俯视图）与x轴的夹角
         shoulder_xz_angle = calculate_angle_xz_plane(left_shoulder, right_shoulder)
         features.append(shoulder_xz_angle)
 
