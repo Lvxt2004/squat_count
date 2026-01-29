@@ -36,7 +36,7 @@ video_counter = None  # 视频检测用的计数器
 
 def init_counter():
     global counter, video_counter
-    counter = SquatCounter(debounce_frames=3, confidence_threshold=0.7)
+    counter = SquatCounter(debounce_frames=2, confidence_threshold=0.7)
     video_counter = SquatCounter(debounce_frames=3, confidence_threshold=0.7)
 
 # 全局状态
