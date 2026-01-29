@@ -166,6 +166,31 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 20px rgba(255,71,87,0.4);
         }
+        .correction-card {
+            background: linear-gradient(145deg, #1e2a1e, #253025);
+            border: 1px solid #00ff88;
+        }
+        .correction-title {
+            font-size: 1rem;
+            color: #00ff88;
+            margin-bottom: 10px;
+        }
+        .correction-item {
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: rgba(255, 165, 2, 0.15);
+            border-left: 3px solid #ffa502;
+            color: #ffa502;
+        }
+        .correction-item:last-child {
+            margin-bottom: 0;
+        }
+        .correction-ok {
+            color: #00ff88;
+            font-size: 0.95rem;
+        }
         .warning-overlay {
             position: absolute;
             top: 0;
@@ -244,6 +269,13 @@
                     <div class="avg-score">平均分: <span id="avg-score">--</span></div>
                 </div>
 
+                <div class="stat-card correction-card">
+                    <div class="correction-title">动作反馈</div>
+                    <div id="correction-content">
+                        <span class="correction-ok">等待检测...</span>
+                    </div>
+                </div>
+
                 <button class="reset-btn" onclick="resetCount()">重置计数</button>
             </div>
         </div>
@@ -271,6 +303,19 @@
                     const score = data.score || 0;
                     const count = data.count || 0;
                     const scoreEl = document.getElementById('score');
+
+                    // 更新矫正提示（在更新lastCount之前判断）
+                    if (count !== lastCount && count > 0) {
+                        const correctionContent = document.getElementById('correction-content');
+                        const corrections = data.corrections || [];
+                        if (corrections.length > 0) {
+                            correctionContent.innerHTML = corrections.map(c =>
+                                `<div class="correction-item">${c.message}</div>`
+                            ).join('');
+                        } else {
+                            correctionContent.innerHTML = '<span class="correction-ok">动作标准！</span>';
+                        }
+                    }
 
                     if (score > 0) {
                         scoreEl.textContent = score.toFixed(1);

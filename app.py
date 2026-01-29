@@ -49,7 +49,8 @@ current_status = {
     'warning': None,
     'score': 0,
     'avg_score': 0,
-    'score_history': []
+    'score_history': [],
+    'corrections': []
 }
 
 # 视频检测状态

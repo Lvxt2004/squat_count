@@ -135,6 +135,35 @@ class SquatCounter:
         self.feature_filter_window = 3  # 特征平滑窗口
         self.feature_history = deque(maxlen=self.feature_filter_window)
 
+        # 加载标准蹲下帧数据（用于矫正）
+        self.standard_squat_frames = self._load_standard_squat_frames()
+        self.current_corrections = []  # 当前矫正提示
+
+    def _load_standard_squat_frames(self):
+        """加载各角度标准蹲下帧的关键点数据，提取角度特定的矫正特征"""
+        frames = {}
+        file_map = {
+            '正面': 'zheng_standard.csv',
+            '侧面': 'ce_standard.csv',
+            '斜面': 'xie_standard.csv'
+        }
+
+        for angle_name, filename in file_map.items():
+            file_path = os.path.join(DATA_DIR, filename)
+            if os.path.exists(file_path):
+                try:
+                    # 读取33个关键点的坐标
+                    df = pd.read_csv(file_path, header=None)
+                    landmarks_array = df.values  # 33x3 数组
+                    # 根据角度类型提取不同的矫正特征
+                    features = self._compute_correction_features(landmarks_array, angle_name)
+                    frames[angle_name] = features
+                    print(f"加载标准蹲下帧: {angle_name}, 特征: {features}")
+                except Exception as e:
+                    print(f"加载标准蹲下帧失败 {file_path}: {e}")
+
+        return frames
+
     def _load_standard_sequences(self):
         """加载标准动作序列数据"""
         sequences = {}
@@ -224,6 +253,104 @@ class SquatCounter:
             hip_relative_height,
             torso_thigh_angle,
         ])
+
+    def _compute_correction_features(self, landmarks_array, angle_type):
+        """
+        根据角度类型计算用于矫正的特征
+        不同角度使用不同的特征集
+        """
+        # 获取关键点
+        left_shoulder = landmarks_array[LEFT_SHOULDER]
+        right_shoulder = landmarks_array[RIGHT_SHOULDER]
+        left_hip = landmarks_array[LEFT_HIP]
+        right_hip = landmarks_array[RIGHT_HIP]
+        left_knee = landmarks_array[LEFT_KNEE]
+        right_knee = landmarks_array[RIGHT_KNEE]
+        left_ankle = landmarks_array[LEFT_ANKLE]
+        right_ankle = landmarks_array[RIGHT_ANKLE]
+        left_foot = landmarks_array[31]  # LEFT_FOOT_INDEX
+        right_foot = landmarks_array[32]  # RIGHT_FOOT_INDEX
+
+        # 计算中点
+        hip_mid = (left_hip + right_hip) / 2
+        shoulder_mid = (left_shoulder + right_shoulder) / 2
+        ankle_mid = (left_ankle + right_ankle) / 2
+        knee_mid = (left_knee + right_knee) / 2
+        foot_mid = (left_foot + right_foot) / 2
+
+        # 计算归一化用的长度
+        half_torso = np.linalg.norm(shoulder_mid - hip_mid)  # 半躯干长度
+        shoulder_width = np.linalg.norm(left_shoulder - right_shoulder)  # 肩宽
+
+        # 获取鼻子位置
+        nose = landmarks_array[NOSE]
+
+        if angle_type == '正面':
+            # 正面特征：
+            # 1. 蹲深程度：臀部中点到两脚中点距离 / 鼻子到两脚中点距离
+            hip_to_ankle_dist = np.linalg.norm(hip_mid - ankle_mid)
+            nose_to_ankle_dist = np.linalg.norm(nose - ankle_mid)
+            squat_depth = hip_to_ankle_dist / (nose_to_ankle_dist + 1e-6)
+
+            # 2. 膝盖间距：两膝盖水平距离 / 肩宽
+            knee_distance = abs(left_knee[0] - right_knee[0]) / (shoulder_width + 1e-6)
+
+            # 3. 身体左右平衡：左右肩膀高度差 / 肩宽
+            shoulder_balance = (left_shoulder[1] - right_shoulder[1]) / (shoulder_width + 1e-6)
+
+            # 4. 重心位置：臀部中点x相对于两脚中点x的偏移 / 肩宽
+            center_offset = (hip_mid[0] - ankle_mid[0]) / (shoulder_width + 1e-6)
+
+            return {
+                'squat_depth': squat_depth,
+                'knee_distance': knee_distance,
+                'shoulder_balance': shoulder_balance,
+                'center_offset': center_offset
+            }
+
+        elif angle_type == '侧面':
+            # 侧面特征：
+            # 1. 膝盖弯曲角度（取可见侧的膝盖）
+            left_knee_angle = self._calc_angle(left_hip, left_knee, left_ankle)
+            right_knee_angle = self._calc_angle(right_hip, right_knee, right_ankle)
+            knee_angle = (left_knee_angle + right_knee_angle) / 2 / 180.0  # 归一化
+
+            # 2. 背部前倾角度：肩部-髋部连线与垂直线的夹角
+            torso_vector = shoulder_mid - hip_mid
+            vertical = np.array([0, -1, 0])  # 向上的垂直向量
+            cos_angle = np.dot(torso_vector, vertical) / (np.linalg.norm(torso_vector) * np.linalg.norm(vertical) + 1e-6)
+            cos_angle = np.clip(cos_angle, -1, 1)
+            back_angle = np.arccos(cos_angle) * 180 / np.pi / 90.0  # 归一化到0-1（90度=1）
+
+            # 3. 膝盖超脚尖程度：膝盖x - 脚尖x，归一化
+            knee_x = (left_knee[0] + right_knee[0]) / 2
+            foot_x = (left_foot[0] + right_foot[0]) / 2
+            knee_over_toe = (knee_x - foot_x) / (half_torso + 1e-6)
+
+            return {
+                'knee_angle': knee_angle,
+                'back_angle': back_angle,
+                'knee_over_toe': knee_over_toe
+            }
+
+        else:  # 斜面
+            # 斜面特征：综合正面和侧面
+            # 1. 蹲深程度：臀部中点到两脚中点距离 / 鼻子到两脚中点距离
+            hip_to_ankle_dist = np.linalg.norm(hip_mid - ankle_mid)
+            nose_to_ankle_dist = np.linalg.norm(nose - ankle_mid)
+            squat_depth = hip_to_ankle_dist / (nose_to_ankle_dist + 1e-6)
+
+            # 2. 背部前倾角度
+            torso_vector = shoulder_mid - hip_mid
+            vertical = np.array([0, -1, 0])
+            cos_angle = np.dot(torso_vector, vertical) / (np.linalg.norm(torso_vector) * np.linalg.norm(vertical) + 1e-6)
+            cos_angle = np.clip(cos_angle, -1, 1)
+            back_angle = np.arccos(cos_angle) * 180 / np.pi / 90.0
+
+            return {
+                'squat_depth': squat_depth,
+                'back_angle': back_angle
+            }
 
     def _smooth_features(self, features):
         """对特征进行平滑滤波，减少抖动"""
@@ -371,6 +498,7 @@ class SquatCounter:
         self.current_score = 0.0
         self.score_history = []
         self.avg_score = 0.0
+        self.current_corrections = []
         self.hip_y_history.clear()
         self.feature_history.clear()
 
@@ -531,12 +659,13 @@ class SquatCounter:
 
         state_changed = False
 
-        # 将当前帧特征加入缓存（先平滑再存入）
+        # 将当前帧特征加入缓存（先平滑再存入，同时保存landmarks用于矫正分析）
         landmarks_array = self._landmarks_to_array(landmarks)
         frame_features = self._compute_frame_features(landmarks_array)
         smoothed_features = self._smooth_features(frame_features)
         self.frame_buffer.append({
             'features': smoothed_features,
+            'landmarks': landmarks_array,  # 保存完整landmarks用于矫正分析
             'frame_idx': self.frame_count
         })
         self.frame_count += 1
@@ -576,6 +705,12 @@ class SquatCounter:
                     self.current_score = score
                     self.score_history.append(self.current_score)
                     self.avg_score = round(sum(self.score_history) / len(self.score_history), 1)
+                    # 分析矫正提示
+                    self.current_corrections = self._analyze_corrections(user_sequence, angle_type)
+                    if self.current_corrections:
+                        print(f"[矫正] 检测到问题: {[c['message'] for c in self.current_corrections]}")
+                    else:
+                        print(f"[矫正] 动作标准")
 
             self.has_squatted = False
             self.confirmed_state = 'stand'
@@ -592,7 +727,8 @@ class SquatCounter:
             'warning': None,
             'score': self.current_score,
             'avg_score': self.avg_score,
-            'score_history': self.score_history[-10:]
+            'score_history': self.score_history[-10:],
+            'corrections': self.current_corrections
         }
 
     def _extract_squat_sequence(self):
@@ -602,3 +738,253 @@ class SquatCounter:
             if frame_data['frame_idx'] >= self.squat_start_idx:
                 sequence.append(frame_data['features'])
         return np.array(sequence) if sequence else np.array([])
+
+    def _analyze_corrections(self, user_sequence, angle_type):
+        """
+        分析动作偏差，返回矫正提示
+        根据不同角度类型使用不同的特征进行分析
+        """
+        # 获取对应角度的标准蹲下帧特征
+        if angle_type not in self.standard_squat_frames:
+            print(f"[矫正分析] 未找到{angle_type}的标准蹲下帧数据")
+            return []
+
+        std_features = self.standard_squat_frames[angle_type]
+
+        # 找到用户蹲到最低点的帧（髋部高度最大的帧，即特征4）
+        user_arr = np.array(user_sequence)
+        user_lowest_idx = np.argmax(user_arr[:, 4])  # 特征4是髋部相对高度
+
+        # 获取用户最低点帧的landmarks数据
+        target_frame_idx = self.squat_start_idx + user_lowest_idx
+        user_landmarks = None
+        for frame_data in self.frame_buffer:
+            if frame_data['frame_idx'] == target_frame_idx:
+                user_landmarks = frame_data.get('landmarks')
+                break
+
+        if user_landmarks is None:
+            print(f"[矫正分析] 未找到最低点帧的landmarks数据")
+            return []
+
+        # 计算用户最低点帧的矫正特征
+        user_correction_features = self._compute_correction_features(user_landmarks, angle_type)
+
+        corrections = []
+
+        if angle_type == '正面':
+            corrections = self._analyze_front_corrections(user_correction_features, std_features)
+        elif angle_type == '侧面':
+            corrections = self._analyze_side_corrections(user_correction_features, std_features)
+        else:  # 斜面
+            corrections = self._analyze_diagonal_corrections(user_correction_features, std_features)
+
+        # 调试输出
+        print(f"[矫正分析] 角度类型: {angle_type}")
+        print(f"[矫正分析] 用户特征: {user_correction_features}")
+        print(f"[矫正分析] 标准特征: {std_features}")
+        if corrections:
+            print(f"[矫正分析] 检测到问题: {[c['message'] for c in corrections]}")
+        else:
+            print(f"[矫正分析] 动作标准")
+
+        return corrections[:2]  # 最多返回2个问题
+
+    def _analyze_front_corrections(self, user_features, std_features):
+        """分析正面角度的矫正"""
+        corrections = []
+
+        # 1. 蹲深程度比较（臀部到脚踝距离 / 鼻子到脚踝距离）
+        # 值越小表示蹲得越深
+        user_squat_depth = user_features.get('squat_depth', 0)
+        std_squat_depth = std_features.get('squat_depth', 0)
+
+        if std_squat_depth > 0:
+            depth_dev = user_squat_depth - std_squat_depth
+            depth_threshold = 0.15 * std_squat_depth  # 15%的相对阈值
+
+            if abs(depth_dev) > depth_threshold:
+                if depth_dev > 0:
+                    corrections.append({
+                        'feature': 'squat_depth',
+                        'deviation': float(depth_dev),
+                        'message': '蹲得不够深'
+                    })
+                else:
+                    corrections.append({
+                        'feature': 'squat_depth',
+                        'deviation': float(depth_dev),
+                        'message': '蹲得有些深'
+                    })
+
+        # 2. 膝盖间距比较（放宽阈值到25%）
+        user_knee_dist = user_features.get('knee_distance', 0)
+        std_knee_dist = std_features.get('knee_distance', 0)
+
+        if std_knee_dist > 0:
+            knee_dev = user_knee_dist - std_knee_dist
+            knee_threshold = 0.25 * std_knee_dist  # 25%的相对阈值，放宽
+
+            if abs(knee_dev) > knee_threshold:
+                if knee_dev < 0:
+                    corrections.append({
+                        'feature': 'knee_distance',
+                        'deviation': float(knee_dev),
+                        'message': '膝盖内扣'
+                    })
+                else:
+                    corrections.append({
+                        'feature': 'knee_distance',
+                        'deviation': float(knee_dev),
+                        'message': '膝盖外展过度'
+                    })
+
+        # 3. 身体平衡比较
+        user_balance = user_features.get('shoulder_balance', 0)
+        std_balance = std_features.get('shoulder_balance', 0)
+        balance_dev = user_balance - std_balance
+
+        if abs(balance_dev) > 0.15:  # 绝对阈值
+            if balance_dev > 0:
+                corrections.append({
+                    'feature': 'balance',
+                    'deviation': float(balance_dev),
+                    'message': '身体向左倾斜'
+                })
+            else:
+                corrections.append({
+                    'feature': 'balance',
+                    'deviation': float(balance_dev),
+                    'message': '身体向右倾斜'
+                })
+
+        # 4. 重心位置比较
+        user_center = user_features.get('center_offset', 0)
+        std_center = std_features.get('center_offset', 0)
+        center_dev = user_center - std_center
+
+        if abs(center_dev) > 0.2:  # 绝对阈值
+            if center_dev > 0:
+                corrections.append({
+                    'feature': 'center',
+                    'deviation': float(center_dev),
+                    'message': '重心偏右'
+                })
+            else:
+                corrections.append({
+                    'feature': 'center',
+                    'deviation': float(center_dev),
+                    'message': '重心偏左'
+                })
+
+        # 按偏差程度排序
+        corrections.sort(key=lambda x: abs(x['deviation']), reverse=True)
+        return corrections
+
+    def _analyze_side_corrections(self, user_features, std_features):
+        """分析侧面角度的矫正"""
+        corrections = []
+        threshold = 0.15
+
+        # 1. 膝盖弯曲角度比较
+        user_knee_angle = user_features.get('knee_angle', 0)
+        std_knee_angle = std_features.get('knee_angle', 0)
+        knee_dev = user_knee_angle - std_knee_angle
+
+        if abs(knee_dev) > threshold:
+            if knee_dev > 0:
+                corrections.append({
+                    'feature': 'knee_angle',
+                    'deviation': float(knee_dev),
+                    'message': '蹲得不够深'
+                })
+            else:
+                corrections.append({
+                    'feature': 'knee_angle',
+                    'deviation': float(knee_dev),
+                    'message': '蹲得有些深'
+                })
+
+        # 2. 背部前倾角度比较
+        user_back_angle = user_features.get('back_angle', 0)
+        std_back_angle = std_features.get('back_angle', 0)
+        back_dev = user_back_angle - std_back_angle
+
+        if abs(back_dev) > threshold:
+            if back_dev > 0:
+                corrections.append({
+                    'feature': 'back_angle',
+                    'deviation': float(back_dev),
+                    'message': '身体前倾过多'
+                })
+            else:
+                corrections.append({
+                    'feature': 'back_angle',
+                    'deviation': float(back_dev),
+                    'message': '身体过于直立'
+                })
+
+        # 3. 膝盖超脚尖比较（仅严重时提示）
+        user_knee_over = user_features.get('knee_over_toe', 0)
+        std_knee_over = std_features.get('knee_over_toe', 0)
+        knee_over_dev = user_knee_over - std_knee_over
+
+        if knee_over_dev > 0.3:  # 只有严重超出时才提示
+            corrections.append({
+                'feature': 'knee_over_toe',
+                'deviation': float(knee_over_dev),
+                'message': '膝盖超过脚尖过多'
+            })
+
+        # 按偏差程度排序
+        corrections.sort(key=lambda x: abs(x['deviation']), reverse=True)
+        return corrections
+
+    def _analyze_diagonal_corrections(self, user_features, std_features):
+        """分析斜面角度的矫正"""
+        corrections = []
+
+        # 1. 蹲深程度比较（臀部到脚踝距离 / 鼻子到脚踝距离）
+        user_squat_depth = user_features.get('squat_depth', 0)
+        std_squat_depth = std_features.get('squat_depth', 0)
+
+        if std_squat_depth > 0:
+            depth_dev = user_squat_depth - std_squat_depth
+            depth_threshold = 0.15 * std_squat_depth  # 15%的相对阈值
+
+            if abs(depth_dev) > depth_threshold:
+                if depth_dev > 0:
+                    corrections.append({
+                        'feature': 'squat_depth',
+                        'deviation': float(depth_dev),
+                        'message': '蹲得不够深'
+                    })
+                else:
+                    corrections.append({
+                        'feature': 'squat_depth',
+                        'deviation': float(depth_dev),
+                        'message': '蹲得有些深'
+                    })
+
+        # 2. 背部前倾角度比较
+        user_back_angle = user_features.get('back_angle', 0)
+        std_back_angle = std_features.get('back_angle', 0)
+        back_dev = user_back_angle - std_back_angle
+
+        if abs(back_dev) > 0.15:
+            if back_dev > 0:
+                corrections.append({
+                    'feature': 'back_angle',
+                    'deviation': float(back_dev),
+                    'message': '身体前倾过多'
+                })
+            else:
+                corrections.append({
+                    'feature': 'back_angle',
+                    'deviation': float(back_dev),
+                    'message': '身体过于直立'
+                })
+
+        # 按偏差程度排序
+        corrections.sort(key=lambda x: abs(x['deviation']), reverse=True)
+        return corrections
