@@ -50,9 +50,16 @@
             overflow: hidden;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             position: relative;
+            width: 100%;
+            height: 480px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .video-container img {
             width: 100%;
+            height: 100%;
+            object-fit: contain;
             display: block;
         }
         .stats-section {
@@ -232,7 +239,7 @@
 
                 <div class="stat-card score-card">
                     <div class="score" id="score">--</div>
-                    <div class="score-label">动作评分 (DTW)</div>
+                    <div class="score-label">动作评分</div>
                     <div class="score-grade" id="score-grade">--</div>
                     <div class="avg-score">平均分: <span id="avg-score">--</span></div>
                 </div>
@@ -243,16 +250,8 @@
                         <span class="info-value" id="pose">未检测</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">姿态置信度</span>
-                        <span class="info-value" id="pose-conf">0%</span>
-                    </div>
-                    <div class="info-row">
                         <span class="info-label">面向角度</span>
                         <span class="info-value" id="angle">未检测</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">角度置信度</span>
-                        <span class="info-value" id="angle-conf">0%</span>
                     </div>
                 </div>
 
@@ -278,11 +277,7 @@
                 .then(data => {
                     document.getElementById('count').textContent = data.count;
                     document.getElementById('pose').textContent = data.pose || '未检测';
-                    document.getElementById('pose-conf').textContent =
-                        (data.pose_confidence * 100).toFixed(1) + '%';
                     document.getElementById('angle').textContent = data.angle || '未检测';
-                    document.getElementById('angle-conf').textContent =
-                        (data.angle_confidence * 100).toFixed(1) + '%';
 
                     // 更新分数显示
                     const score = data.score || 0;

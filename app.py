@@ -199,9 +199,6 @@ def generate_video_frames(video_path):
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        # 控制播放速度
-        time.sleep(frame_delay * 0.5)  # 稍快一点播放
-
     cap.release()
     video_status['processing'] = False
 
@@ -269,4 +266,4 @@ def video_reset():
 
 if __name__ == '__main__':
     init_counter()
-    app.run(debug=True, host='0.0.0.0', port=5001, threaded=True)
+    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
