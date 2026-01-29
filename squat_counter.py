@@ -801,7 +801,7 @@ class SquatCounter:
 
         if std_squat_depth > 0:
             depth_dev = user_squat_depth - std_squat_depth
-            depth_threshold = 0.15 * std_squat_depth  # 15%的相对阈值
+            depth_threshold = 0.3 * std_squat_depth  # 25%的相对阈值
 
             if abs(depth_dev) > depth_threshold:
                 if depth_dev > 0:
@@ -817,13 +817,13 @@ class SquatCounter:
                         'message': '蹲得有些深'
                     })
 
-        # 2. 膝盖间距比较（放宽阈值到25%）
+        # 2. 膝盖间距比较（放宽阈值到35%）
         user_knee_dist = user_features.get('knee_distance', 0)
         std_knee_dist = std_features.get('knee_distance', 0)
 
         if std_knee_dist > 0:
             knee_dev = user_knee_dist - std_knee_dist
-            knee_threshold = 0.25 * std_knee_dist  # 25%的相对阈值，放宽
+            knee_threshold = 0.35 * std_knee_dist  # 35%的相对阈值，放宽
 
             if abs(knee_dev) > knee_threshold:
                 if knee_dev < 0:
