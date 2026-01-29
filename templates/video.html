@@ -284,17 +284,6 @@
                     <div class="avg-score">平均分: <span id="avg-score">--</span></div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="info-row">
-                        <span class="info-label">当前姿态</span>
-                        <span class="info-value" id="pose">未检测</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">面向角度</span>
-                        <span class="info-value" id="angle">未检测</span>
-                    </div>
-                </div>
-
                 <button class="btn btn-primary" id="play-btn" onclick="playVideo()" disabled>开始检测</button>
                 <button class="btn btn-danger" onclick="resetVideo()">重置</button>
             </div>
@@ -377,8 +366,6 @@
                     .then(response => response.json())
                     .then(data => {
                         document.getElementById('count').textContent = data.count;
-                        document.getElementById('pose').textContent = data.pose || '未检测';
-                        document.getElementById('angle').textContent = data.angle || '未检测';
 
                         const score = data.score || 0;
                         if (score > 0) {
@@ -410,8 +397,6 @@
                     document.getElementById('avg-score').textContent = '--';
                     document.getElementById('score-grade').textContent = '--';
                     document.getElementById('score-grade').className = 'score-grade';
-                    document.getElementById('pose').textContent = '未检测';
-                    document.getElementById('angle').textContent = '未检测';
                     document.getElementById('upload-area').style.display = 'block';
                     document.getElementById('video-stream').style.display = 'none';
                     document.getElementById('video-stream').src = '';

@@ -244,17 +244,6 @@
                     <div class="avg-score">平均分: <span id="avg-score">--</span></div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="info-row">
-                        <span class="info-label">当前姿态</span>
-                        <span class="info-value" id="pose">未检测</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">面向角度</span>
-                        <span class="info-value" id="angle">未检测</span>
-                    </div>
-                </div>
-
                 <button class="reset-btn" onclick="resetCount()">重置计数</button>
             </div>
         </div>
@@ -277,8 +266,6 @@
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('count').textContent = data.count;
-                    document.getElementById('pose').textContent = data.pose || '未检测';
-                    document.getElementById('angle').textContent = data.angle || '未检测';
 
                     // 更新分数显示
                     const score = data.score || 0;
