@@ -262,6 +262,7 @@
 
     <script>
         let lastScore = 0;
+        let lastCount = 0;
 
         function getScoreGrade(score) {
             if (score >= 85) return { text: '优秀', class: 'grade-excellent' };
@@ -281,17 +282,19 @@
 
                     // 更新分数显示
                     const score = data.score || 0;
+                    const count = data.count || 0;
                     const scoreEl = document.getElementById('score');
 
                     if (score > 0) {
                         scoreEl.textContent = score.toFixed(1);
 
-                        // 分数更新时添加动画效果
-                        if (score !== lastScore && lastScore !== 0) {
+                        // 计数变化时添加动画效果（无论分数是否变化）
+                        if (count !== lastCount && lastCount !== 0) {
                             scoreEl.classList.add('updated');
                             setTimeout(() => scoreEl.classList.remove('updated'), 300);
                         }
                         lastScore = score;
+                        lastCount = count;
 
                         // 更新评级
                         const grade = getScoreGrade(score);

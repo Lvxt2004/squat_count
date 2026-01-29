@@ -131,6 +131,10 @@ class SquatCounter:
         self.filter_window = 5  # 移动平均窗口大小
         self.hip_y_history = deque(maxlen=self.filter_window)
 
+        # 特征平滑滤波器（用于 DTW 评分）
+        self.feature_filter_window = 3  # 特征平滑窗口
+        self.feature_history = deque(maxlen=self.feature_filter_window)
+
     def _load_standard_sequences(self):
         """加载标准动作序列数据"""
         sequences = {}
@@ -221,6 +225,14 @@ class SquatCounter:
             torso_thigh_angle,
         ])
 
+    def _smooth_features(self, features):
+        """对特征进行平滑滤波，减少抖动"""
+        self.feature_history.append(features)
+        if len(self.feature_history) >= self.feature_filter_window:
+            # 使用移动平均
+            return np.mean(list(self.feature_history), axis=0)
+        return features
+
     def _calc_angle(self, p1, p2, p3):
         """计算三点角度"""
         v1 = p1 - p2
@@ -253,15 +265,16 @@ class SquatCounter:
 
         standard_seq = self.standard_sequences[angle_type]
 
-        # 如果用户序列太短，返回较低分数
+        # 如果用户序列太短，返回 None 表示不计入评分
         if len(user_sequence) < 10:
-            return 50.0
+            return None
 
         # 计算 DTW 距离
         dtw_dist = self._dtw_distance(user_sequence, standard_seq)
 
-        # 使用用户序列长度归一化
-        normalized_dist = dtw_dist / len(user_sequence)
+        # 使用两个序列的最大长度归一化，避免帧数差异影响评分
+        max_len = max(len(user_sequence), len(standard_seq))
+        normalized_dist = dtw_dist / max_len
 
         # 调试输出：查看用户序列的特征范围
         print(f"[DTW] 用户序列: {len(user_sequence)}帧, 标准序列: {len(standard_seq)}帧")
@@ -274,7 +287,7 @@ class SquatCounter:
         print(f"[DTW] DTW距离: {dtw_dist:.2f}, 归一化距离: {normalized_dist:.4f}")
 
         # 映射到分数
-        score = 110 - 10 * normalized_dist
+        score = 100 - 15 * normalized_dist
         score = max(0, min(100, score))
 
         print(f"[DTW] 最终得分: {score:.1f}")
@@ -359,6 +372,7 @@ class SquatCounter:
         self.score_history = []
         self.avg_score = 0.0
         self.hip_y_history.clear()
+        self.feature_history.clear()
 
     def extract_angle_features(self, landmarks):
         """
@@ -517,11 +531,12 @@ class SquatCounter:
 
         state_changed = False
 
-        # 将当前帧特征加入缓存
+        # 将当前帧特征加入缓存（先平滑再存入）
         landmarks_array = self._landmarks_to_array(landmarks)
         frame_features = self._compute_frame_features(landmarks_array)
+        smoothed_features = self._smooth_features(frame_features)
         self.frame_buffer.append({
-            'features': frame_features,
+            'features': smoothed_features,
             'frame_idx': self.frame_count
         })
         self.frame_count += 1
@@ -555,9 +570,12 @@ class SquatCounter:
             # 提取本次深蹲的动作序列并计算 DTW 分数
             user_sequence = self._extract_squat_sequence()
             if len(user_sequence) > 0:
-                self.current_score = self._compute_dtw_score(user_sequence, angle_type)
-                self.score_history.append(self.current_score)
-                self.avg_score = round(sum(self.score_history) / len(self.score_history), 1)
+                score = self._compute_dtw_score(user_sequence, angle_type)
+                # 只有有效评分才更新
+                if score is not None:
+                    self.current_score = score
+                    self.score_history.append(self.current_score)
+                    self.avg_score = round(sum(self.score_history) / len(self.score_history), 1)
 
             self.has_squatted = False
             self.confirmed_state = 'stand'
